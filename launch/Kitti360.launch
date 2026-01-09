@@ -22,6 +22,7 @@
     <arg name="pub_velodyne"                        default="True"   doc="velodyne pointcloud" />
     <arg name="pub_velodyne_labeled"                default="True"   doc="velodyne pointcloud labeled" />
     <arg name="pub_sick_points"                     default="True"   doc="sick points" />
+    <arg name="pub_imu_raw"                         default="True"   doc="oxts raw measurements" />
     <arg name="pub_perspective_rectified_left"      default="True"   doc="images of left perspective camera" />
     <arg name="pub_perspective_rectified_right"     default="True"   doc="images of right perspective camera" />
     <arg name="pub_perspective_unrectified_left"    default="True"   doc="images of left perspective camera (unrectified)" />
@@ -45,6 +46,7 @@
     <param name="/kitti360_player/pub_velodyne"                       value="$(arg pub_velodyne)" />
     <param name="/kitti360_player/pub_velodyne_labeled"               value="$(arg pub_velodyne_labeled)" />
     <param name="/kitti360_player/pub_sick_points"                    value="$(arg pub_sick_points)" />
+    <param name="/kitti360_player/pub_imu_raw"                        value="$(arg pub_imu_raw)" />
     <param name="/kitti360_player/pub_perspective_rectified_left"     value="$(arg pub_perspective_rectified_left)" />
     <param name="/kitti360_player/pub_perspective_rectified_right"    value="$(arg pub_perspective_rectified_right)" />
     <param name="/kitti360_player/pub_perspective_unrectified_left"   value="$(arg pub_perspective_unrectified_left)" />

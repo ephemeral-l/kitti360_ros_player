@@ -32,7 +32,7 @@ import time
 import os
 import numpy as np
 import pandas as pd
-from sensor_msgs.msg import PointCloud2, PointField, Image, CameraInfo, RegionOfInterest
+from sensor_msgs.msg import PointCloud2, PointField, Image, CameraInfo, RegionOfInterest, Imu
 from std_msgs.msg import Int16MultiArray, Float32MultiArray, MultiArrayLayout, MultiArrayDimension, ColorRGBA
 from visualization_msgs.msg import MarkerArray, Marker
 from rosgraph_msgs.msg import Clock
@@ -44,6 +44,11 @@ import itertools
 from kitti360_publisher.msg import Kitti360BoundingBox, Kitti360SemanticID, Kitti360SemanticRGB, Kitti360InstanceID, Kitti360Confidence
 from labels import id2label, name2label
 
+import glob
+import utils as utils
+
+import datetime as dt
+import tf
 
 class Kitti360DataPublisher:
     NODENAME = "kitti360_publisher"
@@ -63,6 +68,9 @@ class Kitti360DataPublisher:
 
     # clock
     ros_publisher_clock = None
+
+    ros_publisher_imu_raw = None
+    is_publish_imu_raw = None
 
     # data_2d_raw/2013_05_28_drive_{seq:0>4}_sync/image_{00|01}/data_rect/{frame:0>10}.png
     ros_publisher_2d_raw_perspective_rectified_left = None
@@ -183,6 +191,8 @@ class Kitti360DataPublisher:
 
     # simulation loop variables
     last_published_frame = None
+    last_published_frame_imu_raw = 0
+
     sim_clock = None
     # sick needs a separate variable because data is published at different
     # rate
@@ -270,6 +280,8 @@ class Kitti360DataPublisher:
             "/kitti360_player/pub_sick_points")
         self.publish_velodyne_labeled = rospy.get_param(
             "/kitti360_player/pub_velodyne_labeled")
+        self.is_publish_imu_raw = rospy.get_param(
+            "/kitti360_player/pub_imu_raw")
         self.publish_perspective_rectified_left = rospy.get_param(
             "/kitti360_player/pub_perspective_rectified_left")
         self.publish_perspective_rectified_right = rospy.get_param(
@@ -317,6 +329,8 @@ class Kitti360DataPublisher:
 
         # read poses
         self.read_poses()
+
+        self.read_imu_raw()
 
         # init all publishers
         self.init_publishers()
@@ -386,7 +400,7 @@ class Kitti360DataPublisher:
         # resumed
         # --> (ts when sim was resumed) + (timedelta since then it was resumed)
         self.sim_clock.clock = rospy.Time.from_sec(
-            self.sim_to_resume_at +
+            self.sim_to_resume_at + # default is 0
             (time.time() - self.system_time_simulation_resumed) *
             self.sim_playback_speed)
 
@@ -397,8 +411,18 @@ class Kitti360DataPublisher:
         sim_update_durations.update(self.handle_sick_points_publishing())
 
         next_frame = self._get_frame_to_be_published()
+
+        next_frame_imu_raw = self._get_frame_to_be_published_imu_raw()
         # -1 --> sim time before first frame
         # using != instead of > to make seeking easier
+        if next_frame_imu_raw != -1 and next_frame_imu_raw != self.last_published_frame_imu_raw:
+            self.publish_imu_raw(self.last_published_frame_imu_raw + 1, next_frame_imu_raw)
+            self.last_published_frame_imu_raw = next_frame_imu_raw
+        elif next_frame_imu_raw == -1:
+            # --> simulation timestamp is before first frame
+            # setting this to -1 so that stepping works
+            self.last_published_frame_imu_raw = -1
+
         if next_frame != -1 and next_frame != self.last_published_frame:
             skipped = next_frame - self.last_published_frame - 1
             logfunc = rospy.logwarn if skipped > 0 else rospy.loginfo
@@ -582,6 +606,11 @@ class Kitti360DataPublisher:
         if self.publish_sick_points:
             self.ros_publisher_3d_raw_sick_points = rospy.Publisher(
                 "kitti360/sick_points", PointCloud2, queue_size=1)
+            
+        if self.is_publish_imu_raw:
+            self.ros_publisher_imu_raw = rospy.Publisher(
+                "kitti360/imu_raw", Imu, queue_size=1)
+
         if self.publish_perspective_rectified_left:
             self.ros_publisher_2d_raw_perspective_rectified_left = rospy.Publisher(
                 "kitti360/2d/perspective/rectified_left", Image, queue_size=1)
@@ -757,6 +786,19 @@ class Kitti360DataPublisher:
                 "cannot find velodyne timestamps --> need for execution")
             exit()
 
+        try:
+            cur_dir = self.SEQUENCE_DIRECTORY.rsplit("_", 1)[0] + "_extract"
+            self.timestamps_imu_raw = _read_timestamps(os.path.join(self.DATA_DIRECTORY, "OXTS_Full_Measurements",
+                             cur_dir, "oxts/timestamps.txt"))
+            
+            self.total_number_of_frames_imu_raw = self.timestamps_imu_raw.shape[0]
+        except FileNotFoundError:
+            print(os.path.join(self.DATA_DIRECTORY, "OXTS_Full_Measurements",
+                             cur_dir, "oxts/timestamps.txt"))
+            rospy.logerr("timestamps for imu raw not found. Disabling.")
+            self.is_publish_imu_raw = False
+            
+
         # SICK POINTS
         # data_3d_raw/2013_05_28_drive_{seq:0>4}_sync/sick_points/timestamps.txt
         try:
@@ -821,6 +863,27 @@ class Kitti360DataPublisher:
             self.publish_fisheye_right = False
 
         return 0
+    
+    def read_imu_raw(self):
+        cur_dir = self.SEQUENCE_DIRECTORY.rsplit("_", 1)[0] + "_extract"
+
+        oxts_files = sorted(glob.glob(
+            os.path.join(self.DATA_DIRECTORY, "OXTS_Full_Measurements",
+                                 cur_dir, "oxts", 'data', '*.txt')))
+        self.oxts = utils.load_oxts_packets_and_poses(oxts_files)
+
+
+        # timestamp_file = os.path.join(self.DATA_DIRECTORY, "OXTS_Full_Measurements",
+        #                          cur_dir, "oxts", 'timestamps.txt')
+        # self.timestamps_imu_raw = []
+        # with open(timestamp_file, 'r') as f:
+        #     for line in f.readlines():
+        #         # NB: datetime only supports microseconds, but KITTI timestamps
+        #         # give nanoseconds, so need to truncate last 4 characters to
+        #         # get rid of \n (counts as 1) and extra 3 digits
+        #         t = dt.datetime.strptime(line[:-4], '%Y-%m-%d %H:%M:%S.%f')
+        #         self.timestamps_imu_raw.append(t)
+
 
     def read_poses(self):
         data_path = os.path.join(self.DATA_DIRECTORY, "data_poses",
@@ -1469,6 +1532,30 @@ class Kitti360DataPublisher:
         self.ros_publisher_3d_raw_velodyne_labeled.publish(cloud_msg)
 
         return dict([("velodyne labeled", time.time() - s)])
+    
+    def publish_imu_raw(self, start_frame, end_frame):
+        for frame in range(start_frame, end_frame + 1):
+            q = tf.transformations.quaternion_from_euler(self.oxts[frame].packet.roll, self.oxts[frame].packet.pitch, self.oxts[frame].packet.yaw)
+
+            imu = Imu()
+
+            imu.header.frame_id = "kitti360_gpsimu"
+            imu.header.stamp = self.timestamps_imu_raw[frame]
+
+            imu.orientation.x = q[0]
+            imu.orientation.y = q[1]
+            imu.orientation.z = q[2]
+            imu.orientation.w = q[3]
+
+            imu.linear_acceleration.x = self.oxts[frame].packet.ax
+            imu.linear_acceleration.y = self.oxts[frame].packet.ay
+            imu.linear_acceleration.z = self.oxts[frame].packet.az
+            imu.angular_velocity.x = self.oxts[frame].packet.wx
+            imu.angular_velocity.y = self.oxts[frame].packet.wy
+            imu.angular_velocity.z = self.oxts[frame].packet.wz
+
+            self.ros_publisher_imu_raw.publish(imu)
+
 
     def _publish_transforms(self, frame):
         # FIXME the pointcloud sometimes jumps out and back when playing at
@@ -1969,6 +2056,11 @@ class Kitti360DataPublisher:
     # HELPER
     def _get_maximum_timestamp(self):
         return self.timestamps_velodyne.iloc[-1]
+
+    def _get_frame_to_be_published_imu_raw(self):
+        # get last frame before current simulation time
+        # NOTE this returns -1 if the simulation time is before the first frame
+        return self.timestamps_imu_raw.searchsorted(self.sim_clock.clock) - 1
 
     def _get_frame_to_be_published(self):
         # get last frame before current simulation time
