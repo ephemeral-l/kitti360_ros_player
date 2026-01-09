@@ -8,5 +8,5 @@ sensor_msgs>=1.13.1
 tf2_ros>=0.7.5
 xmltodict>=0.13.0
 pyyaml>=6.0
-glfw==2.5.3
+# glfw==2.5.3
 tf>=1.13.2

@@ -748,7 +748,11 @@ class Kitti360DataPublisher:
             self.total_simulation_time = self.timestamps_velodyne.iloc[
                 -1].to_sec()
         except FileNotFoundError:
-            rospy.logerr("timestamps for velodyne not found. FATAL")
+            print("-------------- wan ______________\n")
+            print(os.path.join(self.DATA_DIRECTORY, "data_3d_raw",
+                             self.SEQUENCE_DIRECTORY,
+                             "velodyne_points/timestamps.txt"))
+            rospy.logerr("2222 timestamps for velodyne not found. FATAL")
             rospy.signal_shutdown(
                 "cannot find velodyne timestamps --> need for execution")
             exit()
