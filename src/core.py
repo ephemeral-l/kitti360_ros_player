@@ -1297,7 +1297,7 @@ class Kitti360DataPublisher:
             # not sure what we want here
             image_msg.is_bigendian = False
             image_msg.header.stamp = timestamp_ser.iloc[frame_index]
-            image_msg.header.frame_id = frame_id
+            image_msg.header.frame_id = str(frame_index)
             image_msg.header.seq = frame
 
             image_msg.width = width

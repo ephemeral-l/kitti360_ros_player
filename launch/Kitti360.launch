@@ -3,6 +3,8 @@
     <!-- must be set to true so that published /clock is used in rviz -->
     <param name="/use_sim_time" value="true" />
 
+    <!-- start 964s at seq00 -->
+
 	<!-- simulation configuration -->
     <arg name="rate"        default="1"          doc="The playback speed as a factor" />
 	<arg name="looping"     default="False"       doc="Whether to loop back to start at the end" />
