@@ -190,7 +190,7 @@ class Kitti360DataPublisher:
     sim_looping = None
 
     # simulation loop variables
-    last_published_frame = None
+    last_published_frame = -1
     last_published_frame_imu_raw = 0
 
     sim_clock = None
@@ -223,6 +223,8 @@ class Kitti360DataPublisher:
 
     def __init__(self):
         # init ros node
+        self.imu_2_save = []
+
         rospy.init_node(self.NODENAME)
 
         rospy.loginfo("   ___ ___ ___ ___   _   _   _             _   _   __")
@@ -270,7 +272,7 @@ class Kitti360DataPublisher:
             rospy.signal_shutdown("provided data directory is invalid")
             exit()
 
-        self.sim_looping = rospy.get_param("kitti360_player/looping", True)
+        self.sim_looping = rospy.get_param("kitti360_player/looping", False)
 
         # ------------------------------------------
         # what to enable/disable
@@ -377,11 +379,17 @@ class Kitti360DataPublisher:
 
             if not self.sim_paused and self._on_last_frame():
                 rospy.loginfo("END OF SEQUENCE!")
-                if self.sim_looping:
-                    rospy.loginfo("Looping enabled --> back to start")
-                    self._seek(self.SIM_START)
-                else:
-                    self.pause()
+                # if self.sim_looping:
+                #     rospy.loginfo("Looping enabled --> back to start")
+                #     self._seek(self.SIM_START)
+                # else:
+                #     self.pause()
+
+                # save imu data to file
+                # imu_file_path = "/home/wan/SSD_4T/work/MARS/code/catkin_LIVO2_det_n_raycast_oriMap/out/KIT_seq_03_imu_raw.log"
+                # rospy.loginfo(f"Saving IMU raw data to {imu_file_path}")
+                # np.savetxt(imu_file_path, np.array(self.imu_2_save))
+                exit(0)
 
             # if the simulation is paused we do nothing
             if not self.sim_paused:
@@ -1284,6 +1292,8 @@ class Kitti360DataPublisher:
 
             assert timestamp_ser is not None, "timestamp series cannot be None at the point"
 
+            print("img time stamp:", timestamp_ser.iloc[frame_index])
+
             # not sure what we want here
             image_msg.is_bigendian = False
             image_msg.header.stamp = timestamp_ser.iloc[frame_index]
@@ -1448,6 +1458,9 @@ class Kitti360DataPublisher:
         # PointCloud2 Message http://docs.ros.org/en/lunar/api/sensor_msgs/html/msg/PointCloud2.html
         # Header http://docs.ros.org/en/lunar/api/std_msgs/html/msg/Header.html
         # PointField http://docs.ros.org/en/lunar/api/sensor_msgs/html/msg/PointField.html
+        print(f"lidar time stamp: {self.timestamps_velodyne.iloc[frame]}, shape: {pointcloud_bin.shape}")
+
+
         cloud_msg = PointCloud2()
         cloud_msg.header.stamp = self.timestamps_velodyne.iloc[frame]
         cloud_msg.header.frame_id = "kitti360_velodyne"
@@ -1534,6 +1547,7 @@ class Kitti360DataPublisher:
         return dict([("velodyne labeled", time.time() - s)])
     
     def publish_imu_raw(self, start_frame, end_frame):
+        is_first_time = True
         for frame in range(start_frame, end_frame + 1):
             q = tf.transformations.quaternion_from_euler(self.oxts[frame].packet.roll, self.oxts[frame].packet.pitch, self.oxts[frame].packet.yaw)
 
@@ -1541,6 +1555,10 @@ class Kitti360DataPublisher:
 
             imu.header.frame_id = "kitti360_gpsimu"
             imu.header.stamp = self.timestamps_imu_raw[frame]
+
+            if is_first_time == True:
+                is_first_time = False
+                # print("Imu start time: ", imu.header.stamp)
 
             imu.orientation.x = q[0]
             imu.orientation.y = q[1]
@@ -1552,9 +1570,19 @@ class Kitti360DataPublisher:
             imu.linear_acceleration.z = self.oxts[frame].packet.az
             imu.angular_velocity.x = self.oxts[frame].packet.wx
             imu.angular_velocity.y = self.oxts[frame].packet.wy
-            imu.angular_velocity.z = self.oxts[frame].packet.wz
+            imu.angular_velocity.z = - self.oxts[frame].packet.wz
 
             self.ros_publisher_imu_raw.publish(imu)
+
+            # append to imu_2_save
+            # self.imu_2_save.append([self.timestamps_imu_raw[frame].to_sec(),
+            #                         q[0], q[1], q[2], q[3],
+            #                         self.oxts[frame].packet.ax,
+            #                         self.oxts[frame].packet.ay,
+            #                         self.oxts[frame].packet.az,
+            #                         self.oxts[frame].packet.wx,
+            #                         self.oxts[frame].packet.wy,
+            #                         self.oxts[frame].packet.wz])
 
 
     def _publish_transforms(self, frame):
@@ -2069,10 +2097,13 @@ class Kitti360DataPublisher:
 
     def _on_last_frame(self):
         """returns whether last published frame is the last frame of the simulation"""
+        # return self.last_published_frame == (
+        #     self.timestamps_velodyne.shape[0] -
+        #     1) and self.last_published_sick_frame == (
+        #         self.timestamps_sick_points.shape[0] - 1)
         return self.last_published_frame == (
             self.timestamps_velodyne.shape[0] -
-            1) and self.last_published_sick_frame == (
-                self.timestamps_sick_points.shape[0] - 1)
+            1)
 
     def _convert_frame_int_to_string(self, frame_int):
         if frame_int is None or frame_int == -1:
