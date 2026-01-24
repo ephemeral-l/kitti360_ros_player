@@ -1463,7 +1463,8 @@ class Kitti360DataPublisher:
 
         cloud_msg = PointCloud2()
         cloud_msg.header.stamp = self.timestamps_velodyne.iloc[frame]
-        cloud_msg.header.frame_id = "kitti360_velodyne"
+        # cloud_msg.header.frame_id = "kitti360_velodyne"
+        cloud_msg.header.frame_id = str(frame)
         cloud_msg.header.seq = frame
 
         # body
@@ -1565,12 +1566,14 @@ class Kitti360DataPublisher:
             imu.orientation.z = q[2]
             imu.orientation.w = q[3]
 
+            # scale = 0.99
+
             imu.linear_acceleration.x = self.oxts[frame].packet.ax
-            imu.linear_acceleration.y = self.oxts[frame].packet.ay
-            imu.linear_acceleration.z = self.oxts[frame].packet.az
+            imu.linear_acceleration.y = -self.oxts[frame].packet.ay
+            imu.linear_acceleration.z = -self.oxts[frame].packet.az
             imu.angular_velocity.x = self.oxts[frame].packet.wx
-            imu.angular_velocity.y = self.oxts[frame].packet.wy
-            imu.angular_velocity.z = - self.oxts[frame].packet.wz
+            imu.angular_velocity.y = -self.oxts[frame].packet.wy
+            imu.angular_velocity.z = -self.oxts[frame].packet.wz
 
             self.ros_publisher_imu_raw.publish(imu)
 
